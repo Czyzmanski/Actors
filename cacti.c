@@ -92,7 +92,7 @@ void queue_destroy(queue_t *queue) {
     free(queue);
 }
 
-#define BUFFER_SIZE 2048
+#define BUFFER_SIZE 1024
 
 typedef struct buffer {
     size_t first_pos;
@@ -141,7 +141,6 @@ void buffer_destroy(buffer_t *buffer) {
 }
 
 typedef struct thread_pool {
-    bool finished;
     queue_t *queue;
     pthread_mutex_t queue_mutex;
     pthread_cond_t queue_nonempty;
@@ -204,6 +203,7 @@ typedef struct actor_system {
     actor_t *actors[CAST_LIMIT];
     size_t spawned_actors;
     pthread_mutex_t actors_mutex;
+    size_t dead_empty_actors;
 } actor_system_t;
 
 actor_system_t actor_system;
@@ -251,15 +251,7 @@ void actor_handle_message(actor_t *actor, message_t *message) {
         }
     }
     else if (message->message_type == MSG_GODIE) {
-        if (pthread_mutex_lock(&actor->mutex)) {
-            exit(EXIT_FAILURE);
-        }
-
         actor->alive = false;
-
-        if (pthread_mutex_unlock(&actor->mutex)) {
-            exit(EXIT_FAILURE);
-        }
     }
     else if (message->message_type == MSG_HELLO) {
         actor->role->prompts[0](&actor->stateptr, message->nbytes, message->data);
@@ -277,11 +269,10 @@ void actor_schedule_for_execution(actor_id_t actor) {
 
     queue_push(actor_system.thread_pool->queue, actor);
 
-    if (pthread_mutex_unlock(&actor_system.thread_pool->queue_mutex)) {
+    if (pthread_cond_signal(&actor_system.thread_pool->queue_nonempty)) {
         exit(EXIT_FAILURE);
     }
-
-    if (pthread_cond_signal(&actor_system.thread_pool->queue_nonempty)) {
+    if (pthread_mutex_unlock(&actor_system.thread_pool->queue_mutex)) {
         exit(EXIT_FAILURE);
     }
 }
@@ -327,6 +318,33 @@ void *thread_function(void *arg) {
         if (!buffer_empty(actor->buffer)) {
             actor_schedule_for_execution(actor_id);
         }
+        else if (!actor->alive) {
+            if (pthread_mutex_lock(&actor_system.actors_mutex)) {
+                exit(EXIT_FAILURE);
+            }
+
+            actor_system.dead_empty_actors++;
+            if (actor_system.dead_empty_actors == actor_system.spawned_actors) {
+                if (pthread_mutex_lock(queue_mutex)) {
+                    exit(EXIT_FAILURE);
+                }
+
+                for (size_t i = 0; i < POOL_SIZE; i++) {
+                    queue_push(actor_system.thread_pool->queue, FINISH_THREADS);
+                }
+
+                if (pthread_cond_broadcast(queue_nonempty)) {
+                    exit(EXIT_FAILURE);
+                }
+                if (pthread_mutex_unlock(queue_mutex)) {
+                    exit(EXIT_FAILURE);
+                }
+            }
+
+            if (pthread_mutex_unlock(&actor_system.actors_mutex)) {
+                exit(EXIT_FAILURE);
+            }
+        }
 
         if (pthread_mutex_unlock(&actor->mutex)) {
             exit(EXIT_FAILURE);
@@ -346,7 +364,6 @@ thread_pool_t *thread_pool_create() {
         exit(EXIT_FAILURE);
     }
 
-    thread_pool->finished = false;
     thread_pool->queue = queue_create();
 
     if (pthread_mutex_init(&thread_pool->queue_mutex, NULL)) {
@@ -371,6 +388,17 @@ thread_pool_t *thread_pool_create() {
     }
 
     return thread_pool;
+}
+
+int thread_pool_join(thread_pool_t *thread_pool) {
+    for (size_t i = 0; i < POOL_SIZE; i++) {
+        void *ret_val;
+        if (pthread_join(thread_pool->threads[i], &ret_val)) {
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    return 0;
 }
 
 void thread_pool_destroy(thread_pool_t *thread_pool) {
@@ -404,7 +432,17 @@ int actor_system_init() {
 }
 
 bool actor_system_legal_actor_id(actor_id_t actor) {
-    return 0 <= actor && actor < CAST_LIMIT && actor_system.actors[actor] != NULL;
+    if (pthread_mutex_lock(&actor_system.actors_mutex)) {
+        exit(EXIT_FAILURE);
+    }
+
+    bool res = 0 <= actor && actor < CAST_LIMIT && actor_system.actors[actor] != NULL;
+
+    if (pthread_mutex_unlock(&actor_system.actors_mutex)) {
+        exit(EXIT_FAILURE);
+    }
+
+    return res;
 }
 
 void actor_system_dispose() {
@@ -442,7 +480,7 @@ void actor_system_join(actor_id_t actor) {
         //TODO: error handling
     }
     else {
-
+        thread_pool_join(actor_system.thread_pool);
         actor_system_dispose();
     }
 }
@@ -450,9 +488,6 @@ void actor_system_join(actor_id_t actor) {
 int send_message(actor_id_t actor, message_t message) {
     if (!actor_system_legal_actor_id(actor)) {
         return -2;
-    }
-    else if (!actor_system.actors[actor]->alive) {
-        return -1;
     }
     else {
         buffer_t *actor_buffer = actor_system.actors[actor]->buffer;
@@ -463,24 +498,33 @@ int send_message(actor_id_t actor, message_t message) {
             exit(EXIT_FAILURE);
         }
 
-        while (buffer_full(actor_buffer)) {
-            if (pthread_cond_wait(actor_cond, actor_mutex)) {
+        if (!actor_system.actors[actor]->alive) {
+            if (pthread_mutex_unlock(actor_mutex)) {
                 exit(EXIT_FAILURE);
             }
+
+            return -1;
         }
+        else {
+            while (buffer_full(actor_buffer)) {
+                if (pthread_cond_wait(actor_cond, actor_mutex)) {
+                    exit(EXIT_FAILURE);
+                }
+            }
 
-        bool schedule_actor = buffer_empty(actor_buffer);
-        buffer_push(actor_buffer, message);
+            bool schedule_actor = buffer_empty(actor_buffer);
+            buffer_push(actor_buffer, message);
 
-        if (schedule_actor) {
-            actor_schedule_for_execution(actor);
+            if (schedule_actor) {
+                actor_schedule_for_execution(actor);
+            }
+
+            if (pthread_mutex_unlock(actor_mutex)) {
+                exit(EXIT_FAILURE);
+            }
+
+            return 0;
         }
-
-        if (pthread_mutex_unlock(actor_mutex)) {
-            exit(EXIT_FAILURE);
-        }
-
-        return 0;
     }
 }
 
