@@ -239,7 +239,7 @@ void actor_handle_message(actor_t *actor, message_t *message) {
     else if (message->message_type == MSG_HELLO) {
         actor->role->prompts[0](&actor->stateptr, message->nbytes, message->data);
     }
-    else {
+    else if ((size_t) message->message_type < actor->role->nprompts) {
         actor->role->prompts[message->message_type](&actor->stateptr,
                                                     message->nbytes, message->data);
     }
