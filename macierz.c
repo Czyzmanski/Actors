@@ -190,7 +190,10 @@ void on_finish(void **stateptr, size_t nbytes, void *data) {
     go_die.nbytes = 0;
     go_die.data = NULL;
 
-    if ((err = send_message(matrix_comp->id_self, go_die))) {
+    free(matrix_comp);
+    *stateptr = NULL;
+
+    if ((err = send_message(actor_id_self(), go_die))) {
         //TODO: error handling
     }
 }

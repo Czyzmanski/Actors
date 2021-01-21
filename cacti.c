@@ -212,7 +212,6 @@ void actor_destroy(actor_t *actor) {
     if (pthread_cond_destroy(&actor->buffer_space)) {
         exit(EXIT_FAILURE);
     }
-    free(actor->stateptr);
     free(actor);
 }
 
