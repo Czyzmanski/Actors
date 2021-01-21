@@ -46,6 +46,7 @@ typedef struct buffer {
 typedef struct actor {
     actor_id_t actor_id;
     bool alive;
+    bool scheduled;
     buffer_t *buffer;
     role_t *role;
     void *stateptr;
@@ -73,7 +74,6 @@ node_t *node_create(actor_id_t actor_id, node_t *next) {
     if (node == NULL) {
         exit(EXIT_FAILURE);
     }
-
     node->actor_id = actor_id;
     node->next = next;
 
@@ -90,7 +90,6 @@ queue_t *queue_create() {
     if (queue == NULL) {
         exit(EXIT_FAILURE);
     }
-
     queue->first = NULL;
     queue->last = NULL;
 
@@ -180,6 +179,7 @@ actor_t *actor_create(actor_id_t actor_id, role_t *role) {
     }
     actor->actor_id = actor_id;
     actor->alive = true;
+    actor->scheduled = false;
     actor->buffer = buffer_create();
     actor->role = role;
     actor->stateptr = NULL;
@@ -192,6 +192,9 @@ actor_t *actor_create(actor_id_t actor_id, role_t *role) {
         exit(EXIT_FAILURE);
     }
     if (pthread_mutex_init(&actor->mutex, &mutex_attr)) {
+        exit(EXIT_FAILURE);
+    }
+    if (pthread_mutexattr_destroy(&mutex_attr)) {
         exit(EXIT_FAILURE);
     }
     if (pthread_cond_init(&actor->buffer_space, NULL)) {
@@ -225,10 +228,11 @@ void actor_handle_message(actor_t *actor, message_t *message) {
         else {
             message_t hello_message;
             hello_message.message_type = MSG_HELLO;
-            hello_message.nbytes = sizeof(actor->actor_id);
+            hello_message.nbytes = sizeof(actor_id_t);
             hello_message.data = &actor->actor_id;
 
-            if (send_message(new_actor, hello_message)) {
+            int err;
+            if ((err = send_message(new_actor, hello_message))) {
                 //TODO: error handling
             }
         }
@@ -249,8 +253,10 @@ void actor_schedule_for_execution(actor_id_t actor) {
     if (pthread_mutex_lock(&actor_system.thread_pool->queue_mutex)) {
         exit(EXIT_FAILURE);
     }
+    queue_t *queue = actor_system.thread_pool->queue;
 
     queue_push(actor_system.thread_pool->queue, actor);
+    actor_system.actors[actor]->scheduled = true;
 
     if (pthread_cond_signal(&actor_system.thread_pool->queue_nonempty)) {
         exit(EXIT_FAILURE);
@@ -297,9 +303,10 @@ void *thread_function(void *arg) {
         }
 
         message_t message = buffer_pop(actor->buffer);
+        actor->scheduled = false;
         actor_handle_message(actor, &message);
 
-        if (!buffer_empty(actor->buffer)) {
+        if (!buffer_empty(actor->buffer) && !actor->scheduled) {
             actor_schedule_for_execution(actor_id);
         }
         else if (!actor->alive) {
@@ -363,20 +370,21 @@ void sigint_handler(int sig) {
 }
 
 void *thread_signal_handler_function(void *arg) {
-    int sig;
-    int err = sigwait(&actor_system.sigaction.sa_mask, &sig);
-    if (err != 0) {
+    int sig, err;
+    if ((err = sigwait(&actor_system.sigaction.sa_mask, &sig))) {
         //TODO: error handling
     }
 
     return NULL;
 }
 
-thread_pool_t *thread_pool_create() {
+void thread_pool_create() {
     thread_pool_t *thread_pool = malloc(sizeof(thread_pool_t));
     if (thread_pool == NULL) {
         exit(EXIT_FAILURE);
     }
+
+    actor_system.thread_pool = thread_pool;
 
     thread_pool->queue = queue_create();
 
@@ -414,8 +422,6 @@ thread_pool_t *thread_pool_create() {
     if (pthread_attr_destroy(&daemon_attr)) {
         exit(EXIT_FAILURE);
     }
-
-    return thread_pool;
 }
 
 int thread_pool_join(thread_pool_t *thread_pool) {
@@ -454,13 +460,14 @@ int actor_system_init() {
     pthread_sigmask(SIG_BLOCK, &block_mask, NULL);
     actor_system.sigaction.sa_mask = block_mask;
     actor_system.sigaction.sa_handler = sigint_handler;
-    int err = sigaction(SIGINT, &actor_system.sigaction, NULL);
-    if (err != 0) {
+
+    int err;
+    if ((err = sigaction(SIGINT, &actor_system.sigaction, NULL))) {
         //TODO: error handling
         return err;
     }
     else {
-        actor_system.thread_pool = thread_pool_create();
+        thread_pool_create();
         for (size_t i = 0; i < CAST_LIMIT; i++) {
             actor_system.actors[i] = NULL;
         }
@@ -527,16 +534,15 @@ void actor_system_dispose() {
 }
 
 actor_id_t actor_id_self() {
-    actor_id_t *actor_id = pthread_getspecific(
-            actor_system.thread_pool->key_actor_id);
+    actor_id_t *actor_id = pthread_getspecific(actor_system.thread_pool->key_actor_id);
 
     return *actor_id;
 }
 
 int actor_system_create(actor_id_t *actor, role_t *const role) {
-    int res = actor_system_init();
-    if (res) {
-        return res;
+    int err;
+    if ((err = actor_system_init())) {
+        return err;
     }
     else {
         *actor = actor_system_spawn_actor(role);

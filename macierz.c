@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+
 #include "cacti.h"
 
 #define MESSAGES_TYPES 5
@@ -16,14 +18,12 @@ typedef struct pair {
 } pair_t;
 
 typedef struct init_data {
-    size_t row;
     size_t col;
     int val;
     role_t *role;
 } init_data_t;
 
 typedef struct matrix_comp {
-    size_t row;
     size_t col;
     int val;
     actor_id_t id_self;
@@ -34,13 +34,19 @@ typedef struct matrix_comp {
 
 pair_t **matrix;
 
-int *last_val;
+typedef struct partial_sum {
+    size_t row;
+    long sum;
+} partial_sum_t;
+
+partial_sum_t *partial_sum;
 
 void on_hello(void **stateptr, size_t nbytes, void *data) {
     *stateptr = malloc(sizeof(matrix_comp_t));
     if (*stateptr == NULL) {
         exit(EXIT_FAILURE);
     }
+
     matrix_comp_t *matrix_comp = *stateptr;
     actor_id_t *parent = data;
     matrix_comp->id_self = actor_id_self();
@@ -51,16 +57,17 @@ void on_hello(void **stateptr, size_t nbytes, void *data) {
     init_request.nbytes = sizeof(actor_id_t);
     init_request.data = &matrix_comp->id_self;
 
-    int err = send_message(*parent, init_request);
-    if (err != 0) {
+    int err;
+    if ((err = send_message(*parent, init_request))) {
         //TODO: error handling
     }
 }
 
 void on_init_request(void **stateptr, size_t nbytes, void *data) {
+    actor_id_t *requester = data;
+
     matrix_comp_t *matrix_comp = *stateptr;
-    matrix_comp->on_init_request_data.row = matrix_comp->row;
-    matrix_comp->on_init_request_data.col = matrix_comp->col + 1;
+    matrix_comp->on_init_request_data.col = matrix_comp->col - 1;
     matrix_comp->on_init_request_data.val = 0;
     matrix_comp->on_init_request_data.role = matrix_comp->role;
 
@@ -69,27 +76,33 @@ void on_init_request(void **stateptr, size_t nbytes, void *data) {
     init.nbytes = sizeof(init_data_t);
     init.data = &matrix_comp->on_init_request_data;
 
-    actor_id_t *receiver = data;
-    int err = send_message(*receiver, init);
-    if (err != 0) {
+    int err;
+    if ((err = send_message(*requester, init))) {
         //TODO: error handling
     }
 }
 
 void on_init(void **stateptr, size_t nbytes, void *data) {
+    if (*stateptr == NULL) {
+        *stateptr = malloc(sizeof(matrix_comp_t));
+        if (*stateptr == NULL) {
+            exit(EXIT_FAILURE);
+        }
+    }
+
     matrix_comp_t *matrix_comp = *stateptr;
     init_data_t *init_data = data;
-    matrix_comp->row = init_data->row;
     matrix_comp->col = init_data->col;
-    matrix_comp->val = 0;
+    matrix_comp->val = init_data->val;
     matrix_comp->role = init_data->role;
 
     int err;
-    if (matrix_comp->col == n - 1) {
+    if (matrix_comp->col == 0) {
         message_t compute;
         compute.message_type = MSG_COMPUTE;
-        compute.nbytes = sizeof(int);
-        compute.data = &matrix_comp->val;
+        compute.nbytes = sizeof(partial_sum_t);
+        compute.data = &partial_sum[0];
+
         if ((err = send_message(actor_id_self(), compute))) {
             //TODO: error handling
         }
@@ -99,6 +112,7 @@ void on_init(void **stateptr, size_t nbytes, void *data) {
         spawn.message_type = MSG_SPAWN;
         spawn.nbytes = sizeof(role_t);
         spawn.data = matrix_comp->role;
+
         if ((err = send_message(actor_id_self(), spawn))) {
             //TODO: error handling
         }
@@ -106,11 +120,78 @@ void on_init(void **stateptr, size_t nbytes, void *data) {
 }
 
 void on_compute(void **stateptr, size_t nbytes, void *data) {
+    matrix_comp_t *matrix_comp = *stateptr;
+    partial_sum_t *partial_comp = data;
+    size_t curr_row = partial_comp->row;
+    pair_t matrix_cell = matrix[curr_row][matrix_comp->col];
 
+    usleep(matrix_cell.time * 1000);
+
+    matrix_comp->val = matrix_cell.val;
+    partial_comp->sum += matrix_comp->val;
+
+    int err;
+    if (matrix_comp->col == n - 1) {
+        printf("%ld\n", partial_comp->sum);
+    }
+    else {
+        message_t compute;
+        compute.message_type = MSG_COMPUTE;
+        compute.nbytes = sizeof(partial_sum_t);
+        compute.data = partial_comp;
+
+        if ((err = send_message(matrix_comp->parent, compute))) {
+            //TODO: error handling
+        }
+    }
+
+    if (matrix_comp->col == 0) {
+        if (curr_row == k - 1) {
+            message_t finish;
+            finish.message_type = MSG_FINISH;
+            finish.nbytes = 0;
+            finish.data = NULL;
+
+            if ((err = send_message(matrix_comp->id_self, finish))) {
+                //TODO: error handling
+            }
+        }
+        else {
+            message_t compute;
+            compute.message_type = MSG_COMPUTE;
+            compute.nbytes = sizeof(partial_sum_t);
+            compute.data = &partial_sum[curr_row + 1];
+
+            if ((err = send_message(matrix_comp->id_self, compute))) {
+                //TODO: error handling
+            }
+        }
+    }
 }
 
 void on_finish(void **stateptr, size_t nbytes, void *data) {
+    matrix_comp_t *matrix_comp = *stateptr;
+    int err;
 
+    if (matrix_comp->col < n - 1) {
+        message_t finish;
+        finish.message_type = MSG_FINISH;
+        finish.nbytes = 0;
+        finish.data = NULL;
+
+        if ((err = send_message(matrix_comp->parent, finish))) {
+            //TODO: error handling
+        }
+    }
+
+    message_t go_die;
+    go_die.message_type = MSG_GODIE;
+    go_die.nbytes = 0;
+    go_die.data = NULL;
+
+    if ((err = send_message(matrix_comp->id_self, go_die))) {
+        //TODO: error handling
+    }
 }
 
 int main(){
@@ -120,9 +201,16 @@ int main(){
     if (matrix == NULL) {
         exit(EXIT_FAILURE);
     }
-    last_val = malloc(k * sizeof(int));
+
+    partial_sum = malloc(k * sizeof(partial_sum_t));
+    if (partial_sum == NULL) {
+        exit(EXIT_FAILURE);
+    }
 
     for (size_t i = 0; i < k; i++) {
+        partial_sum[i].row = i;
+        partial_sum[i].sum = 0;
+
         matrix[i] = malloc(n * sizeof(pair_t));
         if (matrix[i] == NULL) {
             exit(EXIT_FAILURE);
@@ -139,15 +227,14 @@ int main(){
     role.prompts = acts;
 
     actor_id_t first_actor;
-    int err = actor_system_create(&first_actor, &role);
-    if (err != 0) {
+    int err;
+    if ((err = actor_system_create(&first_actor, &role))) {
         //TODO: error handling
         return err;
     }
 
     init_data_t init_data;
-    init_data.row = 0;
-    init_data.col = 0;
+    init_data.col = n - 1;
     init_data.val = 0;
     init_data.role = &role;
 
@@ -156,8 +243,7 @@ int main(){
     start_computation.nbytes = sizeof(init_data_t);
     start_computation.data = &init_data;
 
-    err = send_message(first_actor, start_computation);
-    if (err != 0) {
+    if ((err = send_message(first_actor, start_computation))) {
         //TODO: error handling
         return err;
     }
