@@ -370,6 +370,11 @@ void sigint_handler(int sig) {
 }
 
 void *thread_signal_handler_function(void *arg) {
+    int old_type;
+    if (pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &old_type)) {
+        exit(EXIT_FAILURE);
+    }
+
     int sig, err;
     if ((err = sigwait(&actor_system.sigaction.sa_mask, &sig))) {
         //TODO: error handling
@@ -408,28 +413,34 @@ void thread_pool_create() {
             exit(EXIT_FAILURE);
         }
     }
-    pthread_attr_t daemon_attr;
-    if (pthread_attr_init(&daemon_attr)) {
-        exit(EXIT_FAILURE);
-    }
-    if (pthread_attr_setdetachstate(&daemon_attr, PTHREAD_CREATE_DETACHED)) {
-        exit(EXIT_FAILURE);
-    }
-    if (pthread_create(&thread_pool->threads[POOL_SIZE], &daemon_attr,
+//    pthread_attr_t daemon_attr;
+//    if (pthread_attr_init(&daemon_attr)) {
+//        exit(EXIT_FAILURE);
+//    }
+//    if (pthread_attr_setdetachstate(&daemon_attr, PTHREAD_CREATE_DETACHED)) {
+//        exit(EXIT_FAILURE);
+//    }
+    if (pthread_create(&thread_pool->threads[POOL_SIZE], NULL,
                        thread_signal_handler_function, NULL)) {
         exit(EXIT_FAILURE);
     }
-    if (pthread_attr_destroy(&daemon_attr)) {
-        exit(EXIT_FAILURE);
-    }
+//    if (pthread_attr_destroy(&daemon_attr)) {
+//        exit(EXIT_FAILURE);
+//    }
 }
 
 int thread_pool_join(thread_pool_t *thread_pool) {
+    void *ret_val;
     for (size_t i = 0; i < POOL_SIZE; i++) {
-        void *ret_val;
         if (pthread_join(thread_pool->threads[i], &ret_val)) {
             exit(EXIT_FAILURE);
         }
+    }
+    if (pthread_cancel(thread_pool->threads[POOL_SIZE])) {
+        exit(EXIT_FAILURE);
+    }
+    if (pthread_join(thread_pool->threads[POOL_SIZE], &ret_val)) {
+        exit(EXIT_FAILURE);
     }
 
     return 0;

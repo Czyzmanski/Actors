@@ -47,8 +47,8 @@ void on_hello(void **stateptr, size_t nbytes, void *data) {
         exit(EXIT_FAILURE);
     }
 
-    matrix_comp_t *matrix_comp = *stateptr;
     actor_id_t *parent = data;
+    matrix_comp_t *matrix_comp = *stateptr;
     matrix_comp->id_self = actor_id_self();
     matrix_comp->parent = *parent;
 
@@ -90,11 +90,12 @@ void on_init(void **stateptr, size_t nbytes, void *data) {
         }
     }
 
-    matrix_comp_t *matrix_comp = *stateptr;
     init_data_t *init_data = data;
+    matrix_comp_t *matrix_comp = *stateptr;
     matrix_comp->col = init_data->col;
     matrix_comp->val = init_data->val;
     matrix_comp->role = init_data->role;
+    matrix_comp->id_self = actor_id_self();
 
     int err;
     if (matrix_comp->col == 0) {
