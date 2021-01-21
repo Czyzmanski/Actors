@@ -412,20 +412,10 @@ void thread_pool_create() {
             exit(EXIT_FAILURE);
         }
     }
-//    pthread_attr_t daemon_attr;
-//    if (pthread_attr_init(&daemon_attr)) {
-//        exit(EXIT_FAILURE);
-//    }
-//    if (pthread_attr_setdetachstate(&daemon_attr, PTHREAD_CREATE_DETACHED)) {
-//        exit(EXIT_FAILURE);
-//    }
     if (pthread_create(&thread_pool->threads[POOL_SIZE], NULL,
                        thread_signal_handler_function, NULL)) {
         exit(EXIT_FAILURE);
     }
-//    if (pthread_attr_destroy(&daemon_attr)) {
-//        exit(EXIT_FAILURE);
-//    }
 }
 
 int thread_pool_join(thread_pool_t *thread_pool) {
