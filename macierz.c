@@ -23,14 +23,14 @@ typedef struct init_data {
     role_t *role;
 } init_data_t;
 
-typedef struct matrix_comp {
+typedef struct fact_comp {
     size_t col;
     int val;
     actor_id_t id_self;
     actor_id_t parent;
     role_t *role;
     init_data_t on_init_request_data;
-} matrix_comp_t;
+} fact_comp_t;
 
 pair_t **matrix;
 
@@ -42,13 +42,13 @@ typedef struct partial_sum {
 partial_sum_t *partial_sum;
 
 void on_hello(void **stateptr, size_t nbytes, void *data) {
-    *stateptr = malloc(sizeof(matrix_comp_t));
+    *stateptr = malloc(sizeof(fact_comp_t));
     if (*stateptr == NULL) {
         exit(EXIT_FAILURE);
     }
 
     actor_id_t *parent = data;
-    matrix_comp_t *matrix_comp = *stateptr;
+    fact_comp_t *matrix_comp = *stateptr;
     matrix_comp->id_self = actor_id_self();
     matrix_comp->parent = *parent;
 
@@ -66,7 +66,7 @@ void on_hello(void **stateptr, size_t nbytes, void *data) {
 void on_init_request(void **stateptr, size_t nbytes, void *data) {
     actor_id_t *requester = data;
 
-    matrix_comp_t *matrix_comp = *stateptr;
+    fact_comp_t *matrix_comp = *stateptr;
     matrix_comp->on_init_request_data.col = matrix_comp->col - 1;
     matrix_comp->on_init_request_data.val = 0;
     matrix_comp->on_init_request_data.role = matrix_comp->role;
@@ -84,14 +84,14 @@ void on_init_request(void **stateptr, size_t nbytes, void *data) {
 
 void on_init(void **stateptr, size_t nbytes, void *data) {
     if (*stateptr == NULL) {
-        *stateptr = malloc(sizeof(matrix_comp_t));
+        *stateptr = malloc(sizeof(fact_comp_t));
         if (*stateptr == NULL) {
             exit(EXIT_FAILURE);
         }
     }
 
     init_data_t *init_data = data;
-    matrix_comp_t *matrix_comp = *stateptr;
+    fact_comp_t *matrix_comp = *stateptr;
     matrix_comp->col = init_data->col;
     matrix_comp->val = init_data->val;
     matrix_comp->role = init_data->role;
@@ -121,7 +121,7 @@ void on_init(void **stateptr, size_t nbytes, void *data) {
 }
 
 void on_compute(void **stateptr, size_t nbytes, void *data) {
-    matrix_comp_t *matrix_comp = *stateptr;
+    fact_comp_t *matrix_comp = *stateptr;
     partial_sum_t *partial_comp = data;
     size_t curr_row = partial_comp->row;
     pair_t matrix_cell = matrix[curr_row][matrix_comp->col];
@@ -171,7 +171,7 @@ void on_compute(void **stateptr, size_t nbytes, void *data) {
 }
 
 void on_finish(void **stateptr, size_t nbytes, void *data) {
-    matrix_comp_t *matrix_comp = *stateptr;
+    fact_comp_t *matrix_comp = *stateptr;
     int err;
 
     if (matrix_comp->col < n - 1) {
