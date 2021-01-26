@@ -22,35 +22,37 @@ typedef struct fact_comp {
     size_t n;
     ull_t fact;
     actor_id_t id_self;
-    actor_id_t parent;
+    actor_id_t *parent;
     role_t *role;
     init_data_t on_init_request_data;
 } fact_comp_t;
 
 
-void on_hello(void **stateptr, size_t nbytes, void *data) {
+void on_hello(void **stateptr, size_t nbytes __attribute__((unused)), void *data) {
     *stateptr = malloc(sizeof(fact_comp_t));
     if (*stateptr == NULL) {
         exit(EXIT_FAILURE);
     }
 
-    actor_id_t *parent = data;
     fact_comp_t *fact_comp = *stateptr;
     fact_comp->id_self = actor_id_self();
-    fact_comp->parent = *parent;
+    fact_comp->parent = data;
 
-    message_t init_request;
-    init_request.message_type = MSG_INIT_REQUEST;
-    init_request.nbytes = sizeof(actor_id_t);
-    init_request.data = &fact_comp->id_self;
+    if (fact_comp->parent != NULL) {
+        message_t init_request;
+        init_request.message_type = MSG_INIT_REQUEST;
+        init_request.nbytes = sizeof(actor_id_t);
+        init_request.data = &fact_comp->id_self;
 
-    int err;
-    if ((err = send_message(*parent, init_request))) {
-        //TODO: error handling
+        int err;
+        if ((err = send_message(*fact_comp->parent, init_request))) {
+            //TODO: error handling
+        }
     }
 }
 
-void on_init_request(void **stateptr, size_t nbytes, void *data) {
+void on_init_request(void **stateptr,
+                     size_t nbytes __attribute__((unused)), void *data) {
     actor_id_t *requester = data;
 
     fact_comp_t *fact_comp = *stateptr;
@@ -69,14 +71,7 @@ void on_init_request(void **stateptr, size_t nbytes, void *data) {
     }
 }
 
-void on_init(void **stateptr, size_t nbytes, void *data) {
-    if (*stateptr == NULL) {
-        *stateptr = malloc(sizeof(fact_comp_t));
-        if (*stateptr == NULL) {
-            exit(EXIT_FAILURE);
-        }
-    }
-
+void on_init(void **stateptr, size_t nbytes __attribute__((unused)), void *data) {
     init_data_t *init_data = data;
     fact_comp_t *fact_comp = *stateptr;
     fact_comp->n = init_data->n;
@@ -109,7 +104,8 @@ void on_init(void **stateptr, size_t nbytes, void *data) {
     }
 }
 
-void on_finish(void **stateptr, size_t nbytes, void *data) {
+void on_finish(void **stateptr, size_t nbytes __attribute__((unused)),
+               void *data __attribute__((unused))) {
     fact_comp_t *fact_comp = *stateptr;
     int err;
 
@@ -119,7 +115,7 @@ void on_finish(void **stateptr, size_t nbytes, void *data) {
         finish.nbytes = 0;
         finish.data = NULL;
 
-        if ((err = send_message(fact_comp->parent, finish))) {
+        if ((err = send_message(*fact_comp->parent, finish))) {
             //TODO: error handling
         }
     }
@@ -137,7 +133,7 @@ void on_finish(void **stateptr, size_t nbytes, void *data) {
     }
 }
 
-int main(){
+int main() {
     scanf("%zd", &n);
 
     act_t acts[] = {on_hello, on_init_request, on_init, on_finish};

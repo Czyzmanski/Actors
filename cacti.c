@@ -2,13 +2,10 @@
 #include <semaphore.h>
 #include <stddef.h>
 #include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <signal.h>
 
-#include <assert.h>
+#include <assert.h> //TODO: remove assertions
 
 #include "cacti.h"
 
@@ -147,19 +144,19 @@ bool buffer_empty(buffer_t *buffer) {
 }
 
 bool buffer_full(buffer_t *buffer) {
-    return buffer->size == BUFFER_SIZE;
+    return buffer->size == ACTOR_QUEUE_LIMIT;
 }
 
 void buffer_push(buffer_t *buffer, message_t message) {
     buffer->messages[buffer->last_pos] = message;
-    buffer->last_pos = (buffer->last_pos + 1) % BUFFER_SIZE;
+    buffer->last_pos = (buffer->last_pos + 1) % ACTOR_QUEUE_LIMIT;
     buffer->size++;
 }
 
 message_t buffer_pop(buffer_t *buffer) {
     assert(!buffer_empty(buffer));
     message_t message = buffer->messages[buffer->first_pos];
-    buffer->first_pos = (buffer->first_pos + 1) % BUFFER_SIZE;
+    buffer->first_pos = (buffer->first_pos + 1) % ACTOR_QUEUE_LIMIT;
     buffer->size--;
 
     return message;
@@ -216,6 +213,15 @@ void actor_destroy(actor_t *actor) {
 
 actor_id_t actor_system_spawn_actor(role_t *role);
 
+int actor_send_hello_message(actor_id_t actor_id, size_t nbytes, void *data) {
+    message_t hello_message;
+    hello_message.message_type = MSG_HELLO;
+    hello_message.nbytes = nbytes;
+    hello_message.data = data;
+
+    return send_message(actor_id, hello_message);
+}
+
 void actor_handle_message(actor_t *actor, message_t *message) {
     if (message->message_type == MSG_SPAWN) {
         actor_id_t new_actor = actor_system_spawn_actor(message->data);
@@ -223,13 +229,9 @@ void actor_handle_message(actor_t *actor, message_t *message) {
             //TODO: error handling
         }
         else {
-            message_t hello_message;
-            hello_message.message_type = MSG_HELLO;
-            hello_message.nbytes = sizeof(actor_id_t);
-            hello_message.data = &actor->actor_id;
-
-            int err;
-            if ((err = send_message(new_actor, hello_message))) {
+            int err = actor_send_hello_message(
+                    new_actor, sizeof(actor_id_t), &actor->actor_id);
+            if (err) {
                 //TODO: error handling
             }
         }
@@ -250,7 +252,6 @@ void actor_schedule_for_execution(actor_id_t actor) {
     if (pthread_mutex_lock(&actor_system.thread_pool->queue_mutex)) {
         exit(EXIT_FAILURE);
     }
-    queue_t *queue = actor_system.thread_pool->queue;
 
     queue_push(actor_system.thread_pool->queue, actor);
     actor_system.actors[actor]->scheduled = true;
@@ -264,7 +265,7 @@ void actor_schedule_for_execution(actor_id_t actor) {
 }
 
 
-void *thread_function(void *arg) {
+void *thread_function(void *arg __attribute__((unused))) {
     thread_pool_t *thread_pool = actor_system.thread_pool;
     pthread_mutex_t *queue_mutex = &thread_pool->queue_mutex;
     pthread_cond_t *queue_nonempty = &thread_pool->queue_nonempty;
@@ -346,7 +347,7 @@ void *thread_function(void *arg) {
     return NULL;
 }
 
-void sigint_handler(int sig) {
+void sigint_handler(int sig __attribute__((unused))) {
     if (pthread_mutex_lock(&actor_system.actors_mutex)) {
         exit(EXIT_FAILURE);
     }
@@ -366,7 +367,7 @@ void sigint_handler(int sig) {
     actor_system_join(0);
 }
 
-void *thread_signal_handler_function(void *arg) {
+void *thread_signal_handler_function(void *arg __attribute__((unused))) {
     int old_type;
     if (pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &old_type)) {
         exit(EXIT_FAILURE);
@@ -466,12 +467,14 @@ int actor_system_init() {
     }
     else {
         thread_pool_create();
+
         for (size_t i = 0; i < CAST_LIMIT; i++) {
             actor_system.actors[i] = NULL;
         }
         actor_system.spawned_actors = 0;
         actor_system.spawning_allowed = true;
         actor_system.dead_empty_actors = 0;
+
         if (pthread_mutex_init(&actor_system.actors_mutex, NULL)) {
             exit(EXIT_FAILURE);
         }
@@ -485,7 +488,8 @@ actor_id_t actor_system_spawn_actor(role_t *role) {
         exit(EXIT_FAILURE);
     }
 
-    if (!actor_system.spawning_allowed || CAST_LIMIT <= actor_system.spawned_actors) {
+    if (!actor_system.spawning_allowed ||
+        CAST_LIMIT <= actor_system.spawned_actors) {
         if (pthread_mutex_unlock(&actor_system.actors_mutex)) {
             exit(EXIT_FAILURE);
         }
@@ -510,7 +514,9 @@ bool actor_system_legal_actor_id(actor_id_t actor) {
         exit(EXIT_FAILURE);
     }
 
-    bool res = 0 <= actor && actor < CAST_LIMIT && actor_system.actors[actor] != NULL;
+    bool res = 0 <= actor
+               && actor < CAST_LIMIT
+               && (size_t) actor < actor_system.spawned_actors;
 
     if (pthread_mutex_unlock(&actor_system.actors_mutex)) {
         exit(EXIT_FAILURE);
@@ -521,18 +527,22 @@ bool actor_system_legal_actor_id(actor_id_t actor) {
 
 void actor_system_dispose() {
     thread_pool_destroy(actor_system.thread_pool);
+
     for (size_t i = 0; i < actor_system.spawned_actors; i++) {
         actor_destroy(actor_system.actors[i]);
     }
+
     actor_system.spawned_actors = 0;
     actor_system.dead_empty_actors = 0;
+
     if (pthread_mutex_destroy(&actor_system.actors_mutex)) {
         exit(EXIT_FAILURE);
     }
 }
 
 actor_id_t actor_id_self() {
-    actor_id_t *actor_id = pthread_getspecific(actor_system.thread_pool->key_actor_id);
+    actor_id_t *actor_id = pthread_getspecific(
+            actor_system.thread_pool->key_actor_id);
 
     return *actor_id;
 }
@@ -545,7 +555,16 @@ int actor_system_create(actor_id_t *actor, role_t *const role) {
     else {
         *actor = actor_system_spawn_actor(role);
 
-        return *actor < 0 ? -1 : 0;
+        if (*actor < 0) {
+            return -1;
+        }
+        else {
+            if ((err = actor_send_hello_message(*actor, 0, NULL))) {
+                //TODO: error handling
+            }
+
+            return err;
+        }
     }
 }
 

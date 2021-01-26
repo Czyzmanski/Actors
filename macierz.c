@@ -23,14 +23,14 @@ typedef struct init_data {
     role_t *role;
 } init_data_t;
 
-typedef struct fact_comp {
+typedef struct matrix_comp {
     size_t col;
     int val;
     actor_id_t id_self;
-    actor_id_t parent;
+    actor_id_t *parent;
     role_t *role;
     init_data_t on_init_request_data;
-} fact_comp_t;
+} matrix_comp_t;
 
 pair_t **matrix;
 
@@ -41,32 +41,34 @@ typedef struct partial_sum {
 
 partial_sum_t *partial_sum;
 
-void on_hello(void **stateptr, size_t nbytes, void *data) {
-    *stateptr = malloc(sizeof(fact_comp_t));
+void on_hello(void **stateptr, size_t nbytes __attribute__((unused)), void *data) {
+    *stateptr = malloc(sizeof(matrix_comp_t));
     if (*stateptr == NULL) {
         exit(EXIT_FAILURE);
     }
 
-    actor_id_t *parent = data;
-    fact_comp_t *matrix_comp = *stateptr;
+    matrix_comp_t *matrix_comp = *stateptr;
     matrix_comp->id_self = actor_id_self();
-    matrix_comp->parent = *parent;
+    matrix_comp->parent = data;
 
-    message_t init_request;
-    init_request.message_type = MSG_INIT_REQUEST;
-    init_request.nbytes = sizeof(actor_id_t);
-    init_request.data = &matrix_comp->id_self;
+    if (matrix_comp->parent != NULL) {
+        message_t init_request;
+        init_request.message_type = MSG_INIT_REQUEST;
+        init_request.nbytes = sizeof(actor_id_t);
+        init_request.data = &matrix_comp->id_self;
 
-    int err;
-    if ((err = send_message(*parent, init_request))) {
-        //TODO: error handling
+        int err;
+        if ((err = send_message(*matrix_comp->parent, init_request))) {
+            //TODO: error handling
+        }
     }
 }
 
-void on_init_request(void **stateptr, size_t nbytes, void *data) {
+void on_init_request(void **stateptr,
+                     size_t nbytes __attribute__((unused)), void *data) {
     actor_id_t *requester = data;
 
-    fact_comp_t *matrix_comp = *stateptr;
+    matrix_comp_t *matrix_comp = *stateptr;
     matrix_comp->on_init_request_data.col = matrix_comp->col - 1;
     matrix_comp->on_init_request_data.val = 0;
     matrix_comp->on_init_request_data.role = matrix_comp->role;
@@ -82,16 +84,9 @@ void on_init_request(void **stateptr, size_t nbytes, void *data) {
     }
 }
 
-void on_init(void **stateptr, size_t nbytes, void *data) {
-    if (*stateptr == NULL) {
-        *stateptr = malloc(sizeof(fact_comp_t));
-        if (*stateptr == NULL) {
-            exit(EXIT_FAILURE);
-        }
-    }
-
+void on_init(void **stateptr, size_t nbytes __attribute__((unused)), void *data) {
     init_data_t *init_data = data;
-    fact_comp_t *matrix_comp = *stateptr;
+    matrix_comp_t *matrix_comp = *stateptr;
     matrix_comp->col = init_data->col;
     matrix_comp->val = init_data->val;
     matrix_comp->role = init_data->role;
@@ -120,8 +115,8 @@ void on_init(void **stateptr, size_t nbytes, void *data) {
     }
 }
 
-void on_compute(void **stateptr, size_t nbytes, void *data) {
-    fact_comp_t *matrix_comp = *stateptr;
+void on_compute(void **stateptr, size_t nbytes __attribute__((unused)), void *data) {
+    matrix_comp_t *matrix_comp = *stateptr;
     partial_sum_t *partial_comp = data;
     size_t curr_row = partial_comp->row;
     pair_t matrix_cell = matrix[curr_row][matrix_comp->col];
@@ -141,7 +136,7 @@ void on_compute(void **stateptr, size_t nbytes, void *data) {
         compute.nbytes = sizeof(partial_sum_t);
         compute.data = partial_comp;
 
-        if ((err = send_message(matrix_comp->parent, compute))) {
+        if ((err = send_message(*matrix_comp->parent, compute))) {
             //TODO: error handling
         }
     }
@@ -170,8 +165,9 @@ void on_compute(void **stateptr, size_t nbytes, void *data) {
     }
 }
 
-void on_finish(void **stateptr, size_t nbytes, void *data) {
-    fact_comp_t *matrix_comp = *stateptr;
+void on_finish(void **stateptr, size_t nbytes __attribute__((unused)),
+               void *data __attribute__((unused))) {
+    matrix_comp_t *matrix_comp = *stateptr;
     int err;
 
     if (matrix_comp->col < n - 1) {
@@ -180,7 +176,7 @@ void on_finish(void **stateptr, size_t nbytes, void *data) {
         finish.nbytes = 0;
         finish.data = NULL;
 
-        if ((err = send_message(matrix_comp->parent, finish))) {
+        if ((err = send_message(*matrix_comp->parent, finish))) {
             //TODO: error handling
         }
     }
@@ -198,7 +194,7 @@ void on_finish(void **stateptr, size_t nbytes, void *data) {
     }
 }
 
-int main(){
+int main() {
     scanf("%zd\n%zd", &k, &n);
 
     matrix = malloc(k * sizeof(pair_t *));
@@ -253,5 +249,5 @@ int main(){
     }
     actor_system_join(first_actor);
 
-	return 0;
+    return 0;
 }
