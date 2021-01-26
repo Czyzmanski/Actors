@@ -34,13 +34,11 @@ typedef struct thread_pool {
     pthread_t *threads;
 } thread_pool_t;
 
-#define BUFFER_SIZE 1024
-
 typedef struct buffer {
     size_t first_pos;
     size_t last_pos;
     size_t size;
-    message_t messages[BUFFER_SIZE];
+    message_t messages[ACTOR_QUEUE_LIMIT];
 } buffer_t;
 
 typedef struct actor {
