@@ -148,7 +148,8 @@ typedef struct sigaction sigaction_t;
 
 typedef struct actor_system {
     thread_pool_t *thread_pool;
-    actor_t *actors[CAST_LIMIT];
+    actor_t **actors;
+    size_t actors_capacity;
     size_t spawned_actors;
     bool spawning_allowed;
     pthread_mutex_t actors_mutex;
@@ -521,6 +522,11 @@ int actor_system_init() {
     else {
         thread_pool_create();
 
+        actor_system.actors_capacity = 1024;
+        actor_system.actors = malloc(
+                actor_system.actors_capacity * sizeof(actor_t *));
+        check_for_successful_alloc(actor_system.actors);
+
         actor_system.spawned_actors = 0;
         actor_system.spawning_allowed = true;
         actor_system.dead_empty_actors = 0;
@@ -543,6 +549,13 @@ actor_id_t actor_system_spawn_actor(role_t *role) {
         return -1;
     }
     else {
+        if (actor_system.spawned_actors == actor_system.actors_capacity) {
+            actor_system.actors_capacity *= 2;
+            size_t new_size = actor_system.actors_capacity * sizeof(actor_t *);
+            actor_system.actors = realloc(actor_system.actors, new_size);
+            check_for_successful_alloc(actor_system.actors);
+        }
+
         actor_id_t actor_id = actor_system.spawned_actors;
         actor_system.actors[actor_id] = actor_create(actor_id, role);
         actor_system.spawned_actors++;
@@ -568,6 +581,7 @@ void actor_system_dispose() {
     for (size_t i = 0; i < actor_system.spawned_actors; i++) {
         actor_destroy(actor_system.actors[i]);
     }
+    free(actor_system.actors);
 
     actor_system.spawned_actors = 0;
     actor_system.dead_empty_actors = 0;
