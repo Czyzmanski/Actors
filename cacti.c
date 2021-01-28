@@ -1,15 +1,110 @@
+#include <stdio.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <string.h>
+#include <errno.h>
 
 #include <assert.h> //TODO: remove assertions
 
 #include "cacti.h"
 
 #define FINISH_THREADS -1
+
+void check_for_successful_alloc(void *data) {
+    if (data == NULL) {
+        fprintf(stderr, "Allocation failed: %d, %s\n", errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+}
+
+void mutex_init(pthread_mutex_t *mutex, pthread_mutexattr_t *mutex_attr) {
+    if (pthread_mutex_init(mutex, mutex_attr)) {
+        fprintf(stderr, "Mutex initialisation failed: %d, %s\n",
+                errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+}
+
+void mutex_lock(pthread_mutex_t *mutex) {
+    if (pthread_mutex_lock(mutex)) {
+        fprintf(stderr, "Mutex locking failed: %d, %s\n", errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+}
+
+void mutex_unlock(pthread_mutex_t *mutex) {
+    if (pthread_mutex_unlock(mutex)) {
+        fprintf(stderr, "Mutex unlocking failed: %d, %s\n", errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+}
+
+void mutex_destroy(pthread_mutex_t *mutex) {
+    if (pthread_mutex_destroy(mutex)) {
+        fprintf(stderr, "Mutex destruction failed: %d, %s\n", errno,
+                strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+}
+
+void cond_init(pthread_cond_t *cond, pthread_condattr_t *cond_attr) {
+    if (pthread_cond_init(cond, cond_attr)) {
+        fprintf(stderr, "Condition initialisation failed: %d, %s\n",
+                errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+}
+
+void cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex) {
+    if (pthread_cond_wait(cond, mutex)) {
+        fprintf(stderr, "Waiting on condition failed: %d, %s\n",
+                errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+}
+
+void cond_signal(pthread_cond_t *cond) {
+    if (pthread_cond_signal(cond)) {
+        fprintf(stderr, "Signaling on condition failed: %d, %s\n",
+                errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+}
+
+void cond_broadcast(pthread_cond_t *cond) {
+    if (pthread_cond_broadcast(cond)) {
+        fprintf(stderr, "Broadcasting on condition failed: %d, %s\n",
+                errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+}
+
+void cond_destroy(pthread_cond_t *cond) {
+    if (pthread_cond_destroy(cond)) {
+        fprintf(stderr, "Condition destruction failed: %d, %s\n",
+                errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+}
+
+void thread_create(pthread_t *thread, const pthread_attr_t *attr,
+                   void *(*start_routine)(void *), void *arg) {
+    if (pthread_create(thread, attr, start_routine, arg)) {
+        fprintf(stderr, "Thread creation failed: %d, %s\n", errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+}
+
+void thread_join(pthread_t thread, void **ret_val) {
+    if (pthread_join(thread, ret_val)) {
+        fprintf(stderr, "Thread joining failed: %d, %s\n", errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+}
 
 typedef struct node node_t;
 
@@ -66,9 +161,7 @@ actor_system_t actor_system;
 
 node_t *node_create(actor_id_t actor_id, node_t *next) {
     node_t *node = malloc(sizeof(node_t));
-    if (node == NULL) {
-        exit(EXIT_FAILURE);
-    }
+    check_for_successful_alloc(node);
     node->actor_id = actor_id;
     node->next = next;
 
@@ -82,9 +175,7 @@ void node_destroy(node_t *node) {
 
 queue_t *queue_create() {
     queue_t *queue = malloc(sizeof(queue_t));
-    if (queue == NULL) {
-        exit(EXIT_FAILURE);
-    }
+    check_for_successful_alloc(queue);
     queue->first = NULL;
     queue->last = NULL;
 
@@ -129,9 +220,7 @@ void queue_destroy(queue_t *queue) {
 
 buffer_t *buffer_create() {
     buffer_t *buffer = malloc(sizeof(buffer_t));
-    if (buffer == NULL) {
-        exit(EXIT_FAILURE);
-    }
+    check_for_successful_alloc(buffer);
     buffer->first_pos = 0;
     buffer->last_pos = 0;
     buffer->size = 0;
@@ -169,9 +258,7 @@ void buffer_destroy(buffer_t *buffer) {
 
 actor_t *actor_create(actor_id_t actor_id, role_t *role) {
     actor_t *actor = malloc(sizeof(actor_t));
-    if (actor == NULL) {
-        exit(EXIT_FAILURE);
-    }
+    check_for_successful_alloc(actor);
     actor->actor_id = actor_id;
     actor->alive = true;
     actor->scheduled = false;
@@ -181,43 +268,43 @@ actor_t *actor_create(actor_id_t actor_id, role_t *role) {
 
     pthread_mutexattr_t mutex_attr;
     if (pthread_mutexattr_init(&mutex_attr)) {
+        fprintf(stderr, "Mutex attributes initialisation failed: %d, %s\n",
+                errno, strerror(errno));
         exit(EXIT_FAILURE);
     }
     if (pthread_mutexattr_settype(&mutex_attr, PTHREAD_MUTEX_RECURSIVE)) {
+        fprintf(stderr, "Mutex attributes setting type failed: %d, %s\n",
+                errno, strerror(errno));
         exit(EXIT_FAILURE);
     }
-    if (pthread_mutex_init(&actor->mutex, &mutex_attr)) {
-        exit(EXIT_FAILURE);
-    }
+    mutex_init(&actor->mutex, &mutex_attr);
     if (pthread_mutexattr_destroy(&mutex_attr)) {
+        fprintf(stderr, "Mutex attributes destruction failed: %d, %s\n",
+                errno, strerror(errno));
         exit(EXIT_FAILURE);
     }
-    if (pthread_cond_init(&actor->buffer_space, NULL)) {
-        exit(EXIT_FAILURE);
-    }
+    cond_init(&actor->buffer_space, NULL);
 
     return actor;
 }
 
 void actor_destroy(actor_t *actor) {
     buffer_destroy(actor->buffer);
-    if (pthread_mutex_destroy(&actor->mutex)) {
-        exit(EXIT_FAILURE);
-    }
-    if (pthread_cond_destroy(&actor->buffer_space)) {
-        exit(EXIT_FAILURE);
-    }
+    mutex_destroy(&actor->mutex);
+    cond_destroy(&actor->buffer_space);
     free(actor);
 }
 
 
 actor_id_t actor_system_spawn_actor(role_t *role);
 
-int actor_send_hello_message(actor_id_t actor_id, size_t nbytes, void *data) {
-    message_t hello_message;
-    hello_message.message_type = MSG_HELLO;
-    hello_message.nbytes = nbytes;
-    hello_message.data = data;
+int actor_send_hello_message(actor_id_t actor_id,
+                             size_t nbytes, void *data) {
+    message_t hello_message = {
+            .message_type = MSG_HELLO,
+            .nbytes = nbytes,
+            .data = data
+    };
 
     return send_message(actor_id, hello_message);
 }
@@ -226,13 +313,14 @@ void actor_handle_message(actor_t *actor, message_t *message) {
     if (message->message_type == MSG_SPAWN) {
         actor_id_t new_actor = actor_system_spawn_actor(message->data);
         if (new_actor < 0) {
-            //TODO: error handling
+            fprintf(stderr, "%s: failed to spawn a new actor\n", __func__);
         }
         else {
             int err = actor_send_hello_message(
                     new_actor, sizeof(actor_id_t), &actor->actor_id);
             if (err) {
-                //TODO: error handling
+                fprintf(stderr,
+                        "%s: failed to send hello to a new actor\n", __func__);
             }
         }
     }
@@ -246,22 +334,19 @@ void actor_handle_message(actor_t *actor, message_t *message) {
         actor->role->prompts[message->message_type](&actor->stateptr,
                                                     message->nbytes, message->data);
     }
+    else {
+        fprintf(stderr, "%s: invalid message type\n", __func__);
+    }
 }
 
 void actor_schedule_for_execution(actor_id_t actor) {
-    if (pthread_mutex_lock(&actor_system.thread_pool->queue_mutex)) {
-        exit(EXIT_FAILURE);
-    }
+    mutex_lock(&actor_system.thread_pool->queue_mutex);
 
     queue_push(actor_system.thread_pool->queue, actor);
     actor_system.actors[actor]->scheduled = true;
 
-    if (pthread_cond_signal(&actor_system.thread_pool->queue_nonempty)) {
-        exit(EXIT_FAILURE);
-    }
-    if (pthread_mutex_unlock(&actor_system.thread_pool->queue_mutex)) {
-        exit(EXIT_FAILURE);
-    }
+    cond_signal(&actor_system.thread_pool->queue_nonempty);
+    mutex_unlock(&actor_system.thread_pool->queue_mutex);
 }
 
 
@@ -271,14 +356,10 @@ void *thread_function(void *arg __attribute__((unused))) {
     pthread_cond_t *queue_nonempty = &thread_pool->queue_nonempty;
 
     while (true) {
-        if (pthread_mutex_lock(queue_mutex)) {
-            exit(EXIT_FAILURE);
-        }
+        mutex_lock(queue_mutex);
 
         while (queue_empty(thread_pool->queue)) {
-            if (pthread_cond_wait(queue_nonempty, queue_mutex)) {
-                exit(EXIT_FAILURE);
-            }
+            cond_wait(queue_nonempty, queue_mutex);
         }
 
         node_t *node = queue_pop(thread_pool->queue);
@@ -289,18 +370,16 @@ void *thread_function(void *arg __attribute__((unused))) {
             break;
         }
 
-        if (pthread_mutex_unlock(queue_mutex)) {
-            exit(EXIT_FAILURE);
-        }
+        mutex_unlock(queue_mutex);
 
         actor_t *actor = actor_system.actors[actor_id];
         pthread_setspecific(thread_pool->key_actor_id, &actor->actor_id);
 
-        if (pthread_mutex_lock(&actor->mutex)) {
-            exit(EXIT_FAILURE);
-        }
+        mutex_lock(&actor->mutex);
 
         message_t message = buffer_pop(actor->buffer);
+        cond_signal(&actor->buffer_space);
+
         actor->scheduled = false;
         actor_handle_message(actor, &message);
 
@@ -308,59 +387,40 @@ void *thread_function(void *arg __attribute__((unused))) {
             actor_schedule_for_execution(actor_id);
         }
         else if (!actor->alive) {
-            if (pthread_mutex_lock(&actor_system.actors_mutex)) {
-                exit(EXIT_FAILURE);
-            }
+            mutex_lock(&actor_system.actors_mutex);
 
             actor_system.dead_empty_actors++;
             if (actor_system.dead_empty_actors == actor_system.spawned_actors) {
-                if (pthread_mutex_lock(queue_mutex)) {
-                    exit(EXIT_FAILURE);
-                }
+                mutex_lock(queue_mutex);
 
                 for (size_t i = 0; i < POOL_SIZE; i++) {
                     queue_push(actor_system.thread_pool->queue, FINISH_THREADS);
                 }
 
-                if (pthread_cond_broadcast(queue_nonempty)) {
-                    exit(EXIT_FAILURE);
-                }
-                if (pthread_mutex_unlock(queue_mutex)) {
-                    exit(EXIT_FAILURE);
-                }
+                cond_broadcast(queue_nonempty);
+                mutex_unlock(queue_mutex);
             }
 
-            if (pthread_mutex_unlock(&actor_system.actors_mutex)) {
-                exit(EXIT_FAILURE);
-            }
+            mutex_unlock(&actor_system.actors_mutex);
         }
 
-        if (pthread_mutex_unlock(&actor->mutex)) {
-            exit(EXIT_FAILURE);
-        }
+        mutex_unlock(&actor->mutex);
     }
 
-    if (pthread_mutex_unlock(queue_mutex)) {
-        exit(EXIT_FAILURE);
-    }
+    mutex_unlock(queue_mutex);
 
     return NULL;
 }
 
 void sigint_handler(int sig __attribute__((unused))) {
-    if (pthread_mutex_lock(&actor_system.actors_mutex)) {
-        exit(EXIT_FAILURE);
-    }
-
+    mutex_lock(&actor_system.actors_mutex);
     actor_system.spawning_allowed = false;
-
-    if (pthread_mutex_unlock(&actor_system.actors_mutex)) {
-        exit(EXIT_FAILURE);
-    }
+    mutex_unlock(&actor_system.actors_mutex);
 
     for (size_t i = 0; i < actor_system.spawned_actors; i++) {
-        message_t message_go_die;
-        message_go_die.message_type = MSG_GODIE;
+        message_t message_go_die = {
+                .message_type = MSG_GODIE
+        };
         send_message(i, message_go_die);
     }
 
@@ -370,12 +430,19 @@ void sigint_handler(int sig __attribute__((unused))) {
 void *thread_signal_handler_function(void *arg __attribute__((unused))) {
     int old_type;
     if (pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &old_type)) {
+        fprintf(stderr, "%s: pthread_setcanceltype failed, %d, %s\n",
+                __func__, errno, strerror(errno));
         exit(EXIT_FAILURE);
     }
 
-    int sig, err;
-    if ((err = sigwait(&actor_system.sigaction.sa_mask, &sig))) {
-        //TODO: error handling
+    sigset_t block_mask;
+    sigemptyset(&block_mask);
+    sigaddset(&block_mask, SIGINT);
+
+    int sig;
+    if (sigwait(&block_mask, &sig)) {
+        fprintf(stderr, "%s: sigwait failed, %d, %s\n",
+                __func__, errno, strerror(errno));
     }
 
     return NULL;
@@ -383,53 +450,39 @@ void *thread_signal_handler_function(void *arg __attribute__((unused))) {
 
 void thread_pool_create() {
     thread_pool_t *thread_pool = malloc(sizeof(thread_pool_t));
-    if (thread_pool == NULL) {
-        exit(EXIT_FAILURE);
-    }
-
+    check_for_successful_alloc(thread_pool);
     actor_system.thread_pool = thread_pool;
-
     thread_pool->queue = queue_create();
 
-    if (pthread_mutex_init(&thread_pool->queue_mutex, NULL)) {
-        exit(EXIT_FAILURE);
-    }
-    if (pthread_cond_init(&thread_pool->queue_nonempty, NULL)) {
-        exit(EXIT_FAILURE);
-    }
+    mutex_init(&thread_pool->queue_mutex, NULL);
+    cond_init(&thread_pool->queue_nonempty, NULL);
     if (pthread_key_create(&thread_pool->key_actor_id, NULL)) {
+        fprintf(stderr, "%s: pthread_key_create failed, %d, %s\n",
+                __func__, errno, strerror(errno));
         exit(EXIT_FAILURE);
     }
 
     thread_pool->threads = malloc(sizeof(pthread_t) * (POOL_SIZE + 1));
-    if (thread_pool->threads == NULL) {
-        exit(EXIT_FAILURE);
-    }
+    check_for_successful_alloc(thread_pool->threads);
 
     for (size_t i = 0; i < POOL_SIZE; i++) {
-        if (pthread_create(&thread_pool->threads[i], NULL, thread_function, NULL)) {
-            exit(EXIT_FAILURE);
-        }
+        thread_create(&thread_pool->threads[i], NULL, thread_function, NULL);
     }
-    if (pthread_create(&thread_pool->threads[POOL_SIZE], NULL,
-                       thread_signal_handler_function, NULL)) {
-        exit(EXIT_FAILURE);
-    }
+    thread_create(&thread_pool->threads[POOL_SIZE], NULL,
+                  thread_signal_handler_function, NULL);
 }
 
 int thread_pool_join(thread_pool_t *thread_pool) {
     void *ret_val;
     for (size_t i = 0; i < POOL_SIZE; i++) {
-        if (pthread_join(thread_pool->threads[i], &ret_val)) {
-            exit(EXIT_FAILURE);
-        }
+        thread_join(thread_pool->threads[i], &ret_val);
     }
     if (pthread_cancel(thread_pool->threads[POOL_SIZE])) {
+        fprintf(stderr, "%s: pthread_cancel failed, %d, %s\n",
+                __func__, errno, strerror(errno));
         exit(EXIT_FAILURE);
     }
-    if (pthread_join(thread_pool->threads[POOL_SIZE], &ret_val)) {
-        exit(EXIT_FAILURE);
-    }
+    thread_join(thread_pool->threads[POOL_SIZE], &ret_val);
 
     return 0;
 }
@@ -437,13 +490,11 @@ int thread_pool_join(thread_pool_t *thread_pool) {
 void thread_pool_destroy(thread_pool_t *thread_pool) {
     queue_destroy(thread_pool->queue);
 
-    if (pthread_mutex_destroy(&thread_pool->queue_mutex)) {
-        exit(EXIT_FAILURE);
-    }
-    if (pthread_cond_destroy(&thread_pool->queue_nonempty)) {
-        exit(EXIT_FAILURE);
-    }
+    mutex_destroy(&thread_pool->queue_mutex);
+    cond_destroy(&thread_pool->queue_nonempty);
     if (pthread_key_delete(thread_pool->key_actor_id)) {
+        fprintf(stderr, "%s: pthread_key_delete failed, %d, %s\n",
+                __func__, errno, strerror(errno));
         exit(EXIT_FAILURE);
     }
 
@@ -462,37 +513,32 @@ int actor_system_init() {
 
     int err;
     if ((err = sigaction(SIGINT, &actor_system.sigaction, NULL))) {
-        //TODO: error handling
+        fprintf(stderr, "%s: setting up custom sigaction failed: %d, %s\n",
+                __func__, errno, strerror(errno));
+
         return err;
     }
     else {
         thread_pool_create();
 
-        for (size_t i = 0; i < CAST_LIMIT; i++) {
-            actor_system.actors[i] = NULL;
-        }
         actor_system.spawned_actors = 0;
         actor_system.spawning_allowed = true;
         actor_system.dead_empty_actors = 0;
-
-        if (pthread_mutex_init(&actor_system.actors_mutex, NULL)) {
-            exit(EXIT_FAILURE);
-        }
+        mutex_init(&actor_system.actors_mutex, NULL);
 
         return 0;
     }
 }
 
-actor_id_t actor_system_spawn_actor(role_t *role) {
-    if (pthread_mutex_lock(&actor_system.actors_mutex)) {
-        exit(EXIT_FAILURE);
-    }
+bool can_spawn_actor() {
+    return actor_system.spawning_allowed && actor_system.spawned_actors < CAST_LIMIT;
+}
 
-    if (!actor_system.spawning_allowed ||
-        CAST_LIMIT <= actor_system.spawned_actors) {
-        if (pthread_mutex_unlock(&actor_system.actors_mutex)) {
-            exit(EXIT_FAILURE);
-        }
+actor_id_t actor_system_spawn_actor(role_t *role) {
+    mutex_lock(&actor_system.actors_mutex);
+
+    if (!can_spawn_actor()) {
+        mutex_unlock(&actor_system.actors_mutex);
 
         return -1;
     }
@@ -500,27 +546,18 @@ actor_id_t actor_system_spawn_actor(role_t *role) {
         actor_id_t actor_id = actor_system.spawned_actors;
         actor_system.actors[actor_id] = actor_create(actor_id, role);
         actor_system.spawned_actors++;
-
-        if (pthread_mutex_unlock(&actor_system.actors_mutex)) {
-            exit(EXIT_FAILURE);
-        }
+        mutex_unlock(&actor_system.actors_mutex);
 
         return actor_id;
     }
 }
 
 bool actor_system_legal_actor_id(actor_id_t actor) {
-    if (pthread_mutex_lock(&actor_system.actors_mutex)) {
-        exit(EXIT_FAILURE);
-    }
-
+    mutex_lock(&actor_system.actors_mutex);
     bool res = 0 <= actor
                && actor < CAST_LIMIT
                && (size_t) actor < actor_system.spawned_actors;
-
-    if (pthread_mutex_unlock(&actor_system.actors_mutex)) {
-        exit(EXIT_FAILURE);
-    }
+    mutex_unlock(&actor_system.actors_mutex);
 
     return res;
 }
@@ -535,9 +572,7 @@ void actor_system_dispose() {
     actor_system.spawned_actors = 0;
     actor_system.dead_empty_actors = 0;
 
-    if (pthread_mutex_destroy(&actor_system.actors_mutex)) {
-        exit(EXIT_FAILURE);
-    }
+    mutex_destroy(&actor_system.actors_mutex);
 }
 
 actor_id_t actor_id_self() {
@@ -554,13 +589,12 @@ int actor_system_create(actor_id_t *actor, role_t *const role) {
     }
     else {
         *actor = actor_system_spawn_actor(role);
-
         if (*actor < 0) {
             return -1;
         }
         else {
             if ((err = actor_send_hello_message(*actor, 0, NULL))) {
-                //TODO: error handling
+                fprintf(stderr, "%s: failed to send hello\n", __func__);
             }
 
             return err;
@@ -570,7 +604,7 @@ int actor_system_create(actor_id_t *actor, role_t *const role) {
 
 void actor_system_join(actor_id_t actor) {
     if (!actor_system_legal_actor_id(actor)) {
-        //TODO: error handling
+        fprintf(stderr, "%s: invalid actor id\n", __func__);
     }
     else {
         thread_pool_join(actor_system.thread_pool);
@@ -587,30 +621,22 @@ int send_message(actor_id_t actor, message_t message) {
         pthread_mutex_t *actor_mutex = &actor_system.actors[actor]->mutex;
         pthread_cond_t *actor_cond = &actor_system.actors[actor]->buffer_space;
 
-        if (pthread_mutex_lock(actor_mutex)) {
-            exit(EXIT_FAILURE);
-        }
+        mutex_lock(actor_mutex);
 
         if (!actor_system.actors[actor]->alive) {
-            if (pthread_mutex_unlock(actor_mutex)) {
-                exit(EXIT_FAILURE);
-            }
+            mutex_unlock(actor_mutex);
 
             return -1;
         }
         else {
             while (buffer_full(actor_buffer)) {
-                if (pthread_cond_wait(actor_cond, actor_mutex)) {
-                    exit(EXIT_FAILURE);
-                }
+                cond_wait(actor_cond, actor_mutex);
             }
 
             bool schedule_actor = buffer_empty(actor_buffer);
             buffer_push(actor_buffer, message);
 
-            if (pthread_mutex_unlock(actor_mutex)) {
-                exit(EXIT_FAILURE);
-            }
+            mutex_unlock(actor_mutex);
 
             if (schedule_actor) {
                 actor_schedule_for_execution(actor);
