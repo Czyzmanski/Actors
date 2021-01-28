@@ -8,8 +8,6 @@
 #include <string.h>
 #include <errno.h>
 
-#include <assert.h> //TODO: remove assertions
-
 #include "cacti.h"
 
 #define FINISH_THREADS -1
@@ -188,7 +186,6 @@ bool queue_empty(queue_t *queue) {
 }
 
 node_t *queue_pop(queue_t *queue) {
-    assert(!queue_empty(queue));
     node_t *node = queue->first;
     queue->first = node->next;
     if (queue_empty(queue)) {
@@ -244,7 +241,6 @@ void buffer_push(buffer_t *buffer, message_t message) {
 }
 
 message_t buffer_pop(buffer_t *buffer) {
-    assert(!buffer_empty(buffer));
     message_t message = buffer->messages[buffer->first_pos];
     buffer->first_pos = (buffer->first_pos + 1) % ACTOR_QUEUE_LIMIT;
     buffer->size--;
