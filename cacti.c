@@ -73,14 +73,6 @@ void cond_signal(pthread_cond_t *cond) {
     }
 }
 
-void cond_broadcast(pthread_cond_t *cond) {
-    if (pthread_cond_broadcast(cond)) {
-        fprintf(stderr, "Broadcasting on condition failed: %d, %s\n",
-                errno, strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-}
-
 void cond_destroy(pthread_cond_t *cond) {
     if (pthread_cond_destroy(cond)) {
         fprintf(stderr, "Condition destruction failed: %d, %s\n",
@@ -375,8 +367,6 @@ void *thread_function(void *arg __attribute__((unused))) {
         mutex_lock(&actor->mutex);
 
         message_t message = buffer_pop(actor->buffer);
-        cond_signal(&actor->buffer_space);
-
         actor->scheduled = false;
         actor_handle_message(actor, &message);
 
@@ -392,15 +382,16 @@ void *thread_function(void *arg __attribute__((unused))) {
 
                 for (size_t i = 0; i < POOL_SIZE; i++) {
                     queue_push(actor_system.thread_pool->queue, FINISH_THREADS);
+                    cond_signal(queue_nonempty);
                 }
 
-                cond_broadcast(queue_nonempty);
                 mutex_unlock(queue_mutex);
             }
 
             mutex_unlock(&actor_system.actors_mutex);
         }
 
+        cond_signal(&actor->buffer_space);
         mutex_unlock(&actor->mutex);
     }
 
