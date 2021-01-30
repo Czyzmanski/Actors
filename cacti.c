@@ -414,10 +414,10 @@ void sigint_handler(int sig __attribute__((unused))) {
     mutex_unlock(&actor_system.actors_mutex);
 
     for (size_t i = 0; i < actor_system.spawned_actors; i++) {
-        message_t message_go_die = {
-                .message_type = MSG_GODIE
-        };
-        send_message(i, message_go_die);
+        actor_t *actor = actor_system.actors[i];
+        mutex_lock(&actor->mutex);
+        actor->alive = false;
+        mutex_unlock(&actor->mutex);
     }
 
     actor_system_join(0);
@@ -434,6 +434,7 @@ void *thread_signal_handler_function(void *arg __attribute__((unused))) {
     sigset_t block_mask;
     sigemptyset(&block_mask);
     sigaddset(&block_mask, SIGINT);
+    pthread_sigmask(SIG_UNBLOCK, &block_mask, NULL);
 
     int sig;
     if (sigwait(&block_mask, &sig)) {
