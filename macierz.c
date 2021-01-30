@@ -297,5 +297,11 @@ int main() {
 
     actor_system_join(first_actor);
 
+    for (size_t i = 0; i < k; i++) {
+        free(matrix[i]);
+    }
+    free(matrix);
+    free(partial_sum);
+
     return 0;
 }

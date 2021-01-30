@@ -105,7 +105,7 @@ void on_init(void **stateptr, size_t nbytes __attribute__((unused)), void *data)
 
     int err;
     if (fact_comp->n == n) {
-        printf("%llu", fact_comp->fact);
+        printf("%llu\n", fact_comp->fact);
 
         message_t finish = {
                 .message_type = MSG_FINISH,

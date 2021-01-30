@@ -474,11 +474,7 @@ int thread_pool_join(thread_pool_t *thread_pool) {
     for (size_t i = 0; i < POOL_SIZE; i++) {
         thread_join(thread_pool->threads[i], &ret_val);
     }
-    if (pthread_cancel(thread_pool->threads[POOL_SIZE])) {
-        fprintf(stderr, "%s: pthread_cancel failed, %d, %s\n",
-                __func__, errno, strerror(errno));
-        exit(EXIT_FAILURE);
-    }
+    pthread_cancel(thread_pool->threads[POOL_SIZE]);
     thread_join(thread_pool->threads[POOL_SIZE], &ret_val);
 
     return 0;
