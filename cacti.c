@@ -27,6 +27,28 @@ void mutex_init(pthread_mutex_t *mutex, pthread_mutexattr_t *mutex_attr) {
     }
 }
 
+void mutex_recursive_init(pthread_mutex_t *mutex) {
+    pthread_mutexattr_t mutex_attr;
+    if (pthread_mutexattr_init(&mutex_attr)) {
+        fprintf(stderr, "Mutex attributes initialisation failed: %d, %s\n",
+                errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    if (pthread_mutexattr_settype(&mutex_attr, PTHREAD_MUTEX_RECURSIVE)) {
+        fprintf(stderr, "Mutex attributes setting type failed: %d, %s\n",
+                errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    mutex_init(mutex, &mutex_attr);
+
+    if (pthread_mutexattr_destroy(&mutex_attr)) {
+        fprintf(stderr, "Mutex attributes destruction failed: %d, %s\n",
+                errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+}
+
 void mutex_lock(pthread_mutex_t *mutex) {
     if (pthread_mutex_lock(mutex)) {
         fprintf(stderr, "Mutex locking failed: %d, %s\n", errno, strerror(errno));
@@ -255,23 +277,7 @@ actor_t *actor_create(actor_id_t actor_id, role_t *role) {
     actor->role = role;
     actor->stateptr = NULL;
 
-    pthread_mutexattr_t mutex_attr;
-    if (pthread_mutexattr_init(&mutex_attr)) {
-        fprintf(stderr, "Mutex attributes initialisation failed: %d, %s\n",
-                errno, strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    if (pthread_mutexattr_settype(&mutex_attr, PTHREAD_MUTEX_RECURSIVE)) {
-        fprintf(stderr, "Mutex attributes setting type failed: %d, %s\n",
-                errno, strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    mutex_init(&actor->mutex, &mutex_attr);
-    if (pthread_mutexattr_destroy(&mutex_attr)) {
-        fprintf(stderr, "Mutex attributes destruction failed: %d, %s\n",
-                errno, strerror(errno));
-        exit(EXIT_FAILURE);
-    }
+    mutex_recursive_init(&actor->mutex);
     cond_init(&actor->buffer_space, NULL);
 
     return actor;
@@ -361,13 +367,15 @@ void *thread_function(void *arg __attribute__((unused))) {
 
         mutex_unlock(queue_mutex);
 
+        mutex_lock(&actor_system.actors_mutex);
         actor_t *actor = actor_system.actors[actor_id];
-        pthread_setspecific(thread_pool->key_actor_id, &actor->actor_id);
+        mutex_unlock(&actor_system.actors_mutex);
 
         mutex_lock(&actor->mutex);
 
         message_t message = buffer_pop(actor->buffer);
         actor->scheduled = false;
+        pthread_setspecific(thread_pool->key_actor_id, &actor->actor_id);
         actor_handle_message(actor, &message);
 
         if (!buffer_empty(actor->buffer) && !actor->scheduled) {
@@ -517,7 +525,8 @@ int actor_system_init() {
         actor_system.spawned_actors = 0;
         actor_system.spawning_allowed = true;
         actor_system.dead_empty_actors = 0;
-        mutex_init(&actor_system.actors_mutex, NULL);
+
+        mutex_recursive_init(&actor_system.actors_mutex);
 
         return 0;
     }
