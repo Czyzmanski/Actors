@@ -666,11 +666,11 @@ int send_message(actor_id_t actor, message_t message) {
                                   && !actor_system.actors[actor]->scheduled;
             buffer_push(actor_buffer, message);
 
-            mutex_unlock(actor_mutex);
-
             if (schedule_actor) {
                 actor_schedule_for_execution(actor);
             }
+
+            mutex_unlock(actor_mutex);
 
             return 0;
         }
