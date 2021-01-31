@@ -35,7 +35,7 @@ typedef struct fact_comp {
     size_t n;
     ull_t fact;
     actor_id_t id_self;
-    actor_id_t *parent;
+    actor_id_t parent;
     role_t *role_for_children;
     init_data_t on_init_request_data;
 } fact_comp_t;
@@ -49,7 +49,7 @@ void on_hello(void **stateptr, size_t nbytes __attribute__((unused)), void *data
 
     fact_comp_t *fact_comp = *stateptr;
     fact_comp->id_self = actor_id_self();
-    fact_comp->parent = data;
+    fact_comp->parent = (actor_id_t) data;
 
     message_t init_request = {
             .message_type = MSG_INIT_REQUEST,
@@ -58,7 +58,7 @@ void on_hello(void **stateptr, size_t nbytes __attribute__((unused)), void *data
     };
 
     int err;
-    if ((err = send_message(*fact_comp->parent, init_request))) {
+    if ((err = send_message(fact_comp->parent, init_request))) {
         fprintf(stderr, "Sending message to an actor failed: %d\n", err);
     }
 }
@@ -142,7 +142,7 @@ void on_finish(void **stateptr, size_t nbytes __attribute__((unused)),
                 .data = NULL
         };
 
-        if ((err = send_message(*fact_comp->parent, finish))) {
+        if ((err = send_message(fact_comp->parent, finish))) {
             fprintf(stderr, "Sending message to an actor failed: %d\n", err);
         }
     }

@@ -293,8 +293,7 @@ void actor_destroy(actor_t *actor) {
 
 actor_id_t actor_system_spawn_actor(role_t *role);
 
-int actor_send_hello_message(actor_id_t actor_id,
-                             size_t nbytes, void *data) {
+int actor_send_hello_message(actor_id_t actor_id, size_t nbytes, void *data) {
     message_t hello_message = {
             .message_type = MSG_HELLO,
             .nbytes = nbytes,
@@ -312,7 +311,7 @@ void actor_handle_message(actor_t *actor, message_t *message) {
         }
         else {
             int err = actor_send_hello_message(
-                    new_actor, sizeof(actor_id_t), &actor->actor_id);
+                    new_actor, sizeof(actor_id_t), (void *) actor->actor_id);
             if (err) {
                 fprintf(stderr,
                         "%s: failed to send hello to a new actor\n", __func__);

@@ -43,7 +43,7 @@ typedef struct matrix_comp {
     size_t col;
     int val;
     actor_id_t id_self;
-    actor_id_t *parent;
+    actor_id_t parent;
     role_t *role_for_children;
     init_data_t on_init_request_data;
 } matrix_comp_t;
@@ -65,7 +65,7 @@ void on_hello(void **stateptr, size_t nbytes __attribute__((unused)), void *data
 
     matrix_comp_t *matrix_comp = *stateptr;
     matrix_comp->id_self = actor_id_self();
-    matrix_comp->parent = data;
+    matrix_comp->parent = (actor_id_t) data;
 
     message_t init_request = {
             .message_type = MSG_INIT_REQUEST,
@@ -74,7 +74,7 @@ void on_hello(void **stateptr, size_t nbytes __attribute__((unused)), void *data
     };
 
     int err;
-    if ((err = send_message(*matrix_comp->parent, init_request))) {
+    if ((err = send_message(matrix_comp->parent, init_request))) {
         fprintf(stderr, "Sending message to an actor failed: %d\n", err);
     }
 }
@@ -165,7 +165,7 @@ void on_compute(void **stateptr, size_t nbytes __attribute__((unused)), void *da
                 .data = partial_comp
         };
 
-        if ((err = send_message(*matrix_comp->parent, compute))) {
+        if ((err = send_message(matrix_comp->parent, compute))) {
             fprintf(stderr, "Sending message to an actor failed: %d\n", err);
         }
     }
@@ -208,7 +208,7 @@ void on_finish(void **stateptr, size_t nbytes __attribute__((unused)),
                 .data = NULL
         };
 
-        if ((err = send_message(*matrix_comp->parent, finish))) {
+        if ((err = send_message(matrix_comp->parent, finish))) {
             fprintf(stderr, "Sending message to an actor failed: %d\n", err);
         }
     }
