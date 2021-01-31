@@ -26,6 +26,8 @@
 #define MSG_FINISH 4
 #endif
 
+#define UNUSED(x) (void)(x)
+
 size_t k, n;
 
 typedef struct pair {
@@ -57,7 +59,9 @@ typedef struct partial_sum {
 
 partial_sum_t *partial_sum;
 
-void on_hello(void **stateptr, size_t nbytes __attribute__((unused)), void *data) {
+void on_hello(void **stateptr, size_t nbytes, void *data) {
+    UNUSED(nbytes);
+
     *stateptr = malloc(sizeof(matrix_comp_t));
     if (*stateptr == NULL) {
         exit(EXIT_FAILURE);
@@ -79,8 +83,10 @@ void on_hello(void **stateptr, size_t nbytes __attribute__((unused)), void *data
     }
 }
 
-void on_hello_first_actor(void **stateptr, size_t nbytes __attribute__((unused)),
-                          void *data __attribute__((unused))) {
+void on_hello_first_actor(void **stateptr, size_t nbytes, void *data) {
+    UNUSED(nbytes);
+    UNUSED(data);
+
     *stateptr = malloc(sizeof(matrix_comp_t));
     if (*stateptr == NULL) {
         exit(EXIT_FAILURE);
@@ -90,8 +96,9 @@ void on_hello_first_actor(void **stateptr, size_t nbytes __attribute__((unused))
     matrix_comp->id_self = actor_id_self();
 }
 
-void on_init_request(void **stateptr,
-                     size_t nbytes __attribute__((unused)), void *data) {
+void on_init_request(void **stateptr, size_t nbytes, void *data) {
+    UNUSED(nbytes);
+
     actor_id_t *requester = data;
 
     matrix_comp_t *matrix_comp = *stateptr;
@@ -111,7 +118,9 @@ void on_init_request(void **stateptr,
     }
 }
 
-void on_init(void **stateptr, size_t nbytes __attribute__((unused)), void *data) {
+void on_init(void **stateptr, size_t nbytes, void *data) {
+    UNUSED(nbytes);
+
     init_data_t *init_data = data;
     matrix_comp_t *matrix_comp = *stateptr;
     matrix_comp->col = init_data->col;
@@ -143,7 +152,9 @@ void on_init(void **stateptr, size_t nbytes __attribute__((unused)), void *data)
     }
 }
 
-void on_compute(void **stateptr, size_t nbytes __attribute__((unused)), void *data) {
+void on_compute(void **stateptr, size_t nbytes, void *data) {
+    UNUSED(nbytes);
+
     matrix_comp_t *matrix_comp = *stateptr;
     partial_sum_t *partial_comp = data;
     size_t curr_row = partial_comp->row;
@@ -196,8 +207,10 @@ void on_compute(void **stateptr, size_t nbytes __attribute__((unused)), void *da
     }
 }
 
-void on_finish(void **stateptr, size_t nbytes __attribute__((unused)),
-               void *data __attribute__((unused))) {
+void on_finish(void **stateptr, size_t nbytes, void *data) {
+    UNUSED(nbytes);
+    UNUSED(data);
+
     matrix_comp_t *matrix_comp = *stateptr;
 
     int err;

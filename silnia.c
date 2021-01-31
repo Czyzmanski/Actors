@@ -21,6 +21,8 @@
 #define MSG_FINISH 3
 #endif
 
+#define UNUSED(x) (void)(x)
+
 typedef unsigned long long ull_t;
 
 size_t n;
@@ -41,7 +43,9 @@ typedef struct fact_comp {
 } fact_comp_t;
 
 
-void on_hello(void **stateptr, size_t nbytes __attribute__((unused)), void *data) {
+void on_hello(void **stateptr, size_t nbytes, void *data) {
+    UNUSED(nbytes);
+
     *stateptr = malloc(sizeof(fact_comp_t));
     if (*stateptr == NULL) {
         exit(EXIT_FAILURE);
@@ -63,8 +67,10 @@ void on_hello(void **stateptr, size_t nbytes __attribute__((unused)), void *data
     }
 }
 
-void on_hello_first_actor(void **stateptr, size_t nbytes __attribute__((unused)),
-                          void *data __attribute__((unused))) {
+void on_hello_first_actor(void **stateptr, size_t nbytes, void *data) {
+    UNUSED(nbytes);
+    UNUSED(data);
+
     *stateptr = malloc(sizeof(fact_comp_t));
     if (*stateptr == NULL) {
         exit(EXIT_FAILURE);
@@ -74,8 +80,9 @@ void on_hello_first_actor(void **stateptr, size_t nbytes __attribute__((unused))
     fact_comp->id_self = actor_id_self();
 }
 
-void on_init_request(void **stateptr,
-                     size_t nbytes __attribute__((unused)), void *data) {
+void on_init_request(void **stateptr, size_t nbytes, void *data) {
+    UNUSED(nbytes);
+
     actor_id_t *requester = data;
 
     fact_comp_t *fact_comp = *stateptr;
@@ -95,7 +102,9 @@ void on_init_request(void **stateptr,
     }
 }
 
-void on_init(void **stateptr, size_t nbytes __attribute__((unused)), void *data) {
+void on_init(void **stateptr, size_t nbytes, void *data) {
+    UNUSED(nbytes);
+
     init_data_t *init_data = data;
 
     fact_comp_t *fact_comp = *stateptr;
@@ -130,8 +139,10 @@ void on_init(void **stateptr, size_t nbytes __attribute__((unused)), void *data)
     }
 }
 
-void on_finish(void **stateptr, size_t nbytes __attribute__((unused)),
-               void *data __attribute__((unused))) {
+void on_finish(void **stateptr, size_t nbytes, void *data) {
+    UNUSED(nbytes);
+    UNUSED(data);
+
     fact_comp_t *fact_comp = *stateptr;
 
     int err;

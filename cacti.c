@@ -11,6 +11,7 @@
 #include "cacti.h"
 
 #define FINISH_THREADS -1
+#define UNUSED(x) (void)(x)
 
 void check_for_successful_alloc(void *data) {
     if (data == NULL) {
@@ -159,6 +160,7 @@ typedef struct actor {
 typedef struct sigaction sigaction_t;
 
 typedef struct actor_system {
+    bool created;
     thread_pool_t *thread_pool;
     actor_t **actors;
     size_t actors_capacity;
@@ -169,8 +171,9 @@ typedef struct actor_system {
     sigaction_t sigaction;
 } actor_system_t;
 
-actor_system_t actor_system;
-
+actor_system_t actor_system = {
+        .created = false
+};
 
 node_t *node_create(actor_id_t actor_id, node_t *next) {
     node_t *node = malloc(sizeof(node_t));
@@ -344,7 +347,9 @@ void actor_schedule_for_execution(actor_id_t actor) {
 }
 
 
-void *thread_function(void *arg __attribute__((unused))) {
+void *thread_function(void *arg) {
+    UNUSED(arg);
+
     thread_pool_t *thread_pool = actor_system.thread_pool;
     pthread_mutex_t *queue_mutex = &thread_pool->queue_mutex;
     pthread_cond_t *queue_nonempty = &thread_pool->queue_nonempty;
@@ -373,14 +378,20 @@ void *thread_function(void *arg __attribute__((unused))) {
         mutex_lock(&actor->mutex);
 
         message_t message = buffer_pop(actor->buffer);
-        actor->scheduled = false;
+
+        cond_signal(&actor->buffer_space);
+        mutex_unlock(&actor->mutex);
+
         pthread_setspecific(thread_pool->key_actor_id, &actor->actor_id);
         actor_handle_message(actor, &message);
 
-        if (!buffer_empty(actor->buffer) && !actor->scheduled) {
+        mutex_lock(&actor->mutex);
+
+        if (!buffer_empty(actor->buffer)) {
             actor_schedule_for_execution(actor_id);
         }
         else if (!actor->alive) {
+            mutex_unlock(&actor->mutex);
             mutex_lock(&actor_system.actors_mutex);
 
             actor_system.dead_empty_actors++;
@@ -396,9 +407,13 @@ void *thread_function(void *arg __attribute__((unused))) {
             }
 
             mutex_unlock(&actor_system.actors_mutex);
+            continue;
         }
 
-        cond_signal(&actor->buffer_space);
+        if (buffer_empty(actor->buffer)) {
+            actor->scheduled = false;
+        }
+
         mutex_unlock(&actor->mutex);
     }
 
@@ -407,7 +422,9 @@ void *thread_function(void *arg __attribute__((unused))) {
     return NULL;
 }
 
-void sigint_handler(int sig __attribute__((unused))) {
+void sigint_handler(int sig) {
+    UNUSED(sig);
+
     mutex_lock(&actor_system.actors_mutex);
     actor_system.spawning_allowed = false;
     mutex_unlock(&actor_system.actors_mutex);
@@ -422,7 +439,9 @@ void sigint_handler(int sig __attribute__((unused))) {
     actor_system_join(0);
 }
 
-void *thread_signal_handler_function(void *arg __attribute__((unused))) {
+void *thread_signal_handler_function(void *arg) {
+    UNUSED(arg);
+
     int old_type;
     if (pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &old_type)) {
         fprintf(stderr, "%s: pthread_setcanceltype failed, %d, %s\n",
@@ -513,6 +532,7 @@ int actor_system_init() {
     else {
         thread_pool_create();
 
+        actor_system.created = true;
         actor_system.actors_capacity = 1024;
         actor_system.actors = malloc(
                 actor_system.actors_capacity * sizeof(actor_t *));
@@ -568,6 +588,7 @@ bool actor_system_legal_actor_id(actor_id_t actor) {
 }
 
 void actor_system_dispose() {
+    actor_system.created = false;
     thread_pool_destroy(actor_system.thread_pool);
 
     for (size_t i = 0; i < actor_system.spawned_actors; i++) {
@@ -609,12 +630,14 @@ int actor_system_create(actor_id_t *actor, role_t *const role) {
 }
 
 void actor_system_join(actor_id_t actor) {
-    if (!actor_system_legal_actor_id(actor)) {
-        fprintf(stderr, "%s: invalid actor id\n", __func__);
-    }
-    else {
-        thread_pool_join(actor_system.thread_pool);
-        actor_system_dispose();
+    if (actor_system.created) {
+        if (!actor_system_legal_actor_id(actor)) {
+            fprintf(stderr, "%s: invalid actor id\n", __func__);
+        }
+        else {
+            thread_pool_join(actor_system.thread_pool);
+            actor_system_dispose();
+        }
     }
 }
 
@@ -639,7 +662,8 @@ int send_message(actor_id_t actor, message_t message) {
                 cond_wait(actor_cond, actor_mutex);
             }
 
-            bool schedule_actor = buffer_empty(actor_buffer);
+            bool schedule_actor = buffer_empty(actor_buffer)
+                                  && !actor_system.actors[actor]->scheduled;
             buffer_push(actor_buffer, message);
 
             mutex_unlock(actor_mutex);
